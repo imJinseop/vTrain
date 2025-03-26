@@ -583,7 +583,7 @@ class vTrain():
 if __name__ == "__main__":
 
     config = vTrainConfig.load_from_file("test_config.json")
-    sim = vTrain()
+    sim = vTrain(config)
 
     result, _ = sim()
     print (result)
