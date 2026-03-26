@@ -4,6 +4,11 @@ import torch.nn.functional as F
 
 import math
 
+try:
+    from flash_attn import flash_attn_func
+except ImportError:
+    flash_attn_func = None
+
 from .utils import divide
 from .utils import split_tensor_along_last_dim
 
@@ -112,12 +117,14 @@ class ShardedGptSelfAttention(torch.nn.Module):
     def __init__(self, hidden_size,
                  world_size,
                  num_attention_heads,
+                 attention_backend,
                  attention_dropout_prob,
                  output_dropout_prob,
                  layer_number):
         super(ShardedGptSelfAttention, self).__init__()
 
         self.layer_number = layer_number
+        self.attention_backend = attention_backend
 
         # Per attention head and per partition values.
         self.hidden_size_per_partition = divide(hidden_size, world_size)
@@ -167,6 +174,45 @@ class ShardedGptSelfAttention(torch.nn.Module):
         tensor = tensor.view(*new_tensor_shape)
         return tensor.permute(0, 2, 1, 3)
 
+    def _flash_attention_2(self, query_layer, key_layer, value_layer, attention_mask):
+        if flash_attn_func is None:
+            raise ImportError(
+                "attention_backend='fa2' requires the flash-attention Python package "
+                "with its CUDA extension to be installed."
+            )
+        if not query_layer.is_cuda:
+            raise RuntimeError("attention_backend='fa2' requires CUDA tensors.")
+        if query_layer.dtype not in (torch.float16, torch.bfloat16):
+            raise RuntimeError(
+                "attention_backend='fa2' requires query/key/value tensors in fp16 or bf16."
+            )
+        if attention_mask is not None:
+            if attention_mask.dim() != 4:
+                raise ValueError(
+                    "attention_backend='fa2' expects attention_mask to have shape [b, 1, s, s]."
+                )
+            if attention_mask.size(-2) != query_layer.size(0) or attention_mask.size(-1) != key_layer.size(0):
+                raise ValueError(
+                    "attention_backend='fa2' only supports square self-attention masks."
+                )
+
+        # flash_attn_func consumes [b, s, nheads, headdim] and applies the
+        # GPT causal mask internally.
+        query_layer = query_layer.permute(1, 0, 2, 3).contiguous()
+        key_layer = key_layer.permute(1, 0, 2, 3).contiguous()
+        value_layer = value_layer.permute(1, 0, 2, 3).contiguous()
+
+        context_layer = flash_attn_func(
+            query_layer,
+            key_layer,
+            value_layer,
+            dropout_p=self.attention_dropout.p if self.training else 0.0,
+            softmax_scale=1.0 / math.sqrt(self.hidden_size_per_attention_head),
+            causal=True,
+        )
+
+        return context_layer.permute(0, 2, 1, 3).contiguous()
+
     def forward(self, hidden_states, attention_mask):
         # hidden_states: [sq, b, h]
 
@@ -188,74 +234,88 @@ class ShardedGptSelfAttention(torch.nn.Module):
             key_layer,
             value_layer) = split_tensor_along_last_dim(mixed_x_layer, 3)
         
-        # ===================================
-        # Raw attention scores. [b, np, s, s]
-        # ===================================
+        if (self.attention_backend == "manual"):
+            # ===================================
+            # Raw attention scores. [b, np, s, s]
+            # ===================================
 
-        # [b, np, sq, sk]
-        output_size = (query_layer.size(1),
-                       query_layer.size(2),
-                       query_layer.size(0),
-                       key_layer.size(0))
+            # [b, np, sq, sk]
+            output_size = (query_layer.size(1),
+                        query_layer.size(2),
+                        query_layer.size(0),
+                        key_layer.size(0))
 
-        # [sq, b, np, hn] -> [sq, b * np, hn]
-        query_layer = query_layer.view(output_size[2],
-                                       output_size[0] * output_size[1], -1)
-        # [sk, b, np, hn] -> [sk, b * np, hn]
-        key_layer = key_layer.view(output_size[3],
-                                   output_size[0] * output_size[1], -1)
+            # [sq, b, np, hn] -> [sq, b * np, hn]
+            query_layer = query_layer.view(output_size[2],
+                                        output_size[0] * output_size[1], -1)
+            # [sk, b, np, hn] -> [sk, b * np, hn]
+            key_layer = key_layer.view(output_size[3],
+                                    output_size[0] * output_size[1], -1)
 
-        # preallocting result tensor: [b * np, sq, sk]
-        matmul_result = torch.empty(
-            output_size[0]*output_size[1],
-            output_size[2],
-            output_size[3],
-            dtype=query_layer.dtype,
-            device=torch.cuda.current_device())
+            # preallocting result tensor: [b * np, sq, sk]
+            matmul_result = torch.empty(
+                output_size[0]*output_size[1],
+                output_size[2],
+                output_size[3],
+                dtype=query_layer.dtype,
+                device=torch.cuda.current_device())
 
-        # Raw attention scores. [b * np, sq, sk]
-        matmul_result = torch.baddbmm(
-            matmul_result,
-            query_layer.transpose(0, 1),   # [b * np, sq, hn]
-            key_layer.transpose(0, 1).transpose(1, 2),  # [b * np, hn, sk]
-            beta=0.0, alpha=(1.0/self.norm_factor))
+            # Raw attention scores. [b * np, sq, sk]
+            matmul_result = torch.baddbmm(
+                matmul_result,
+                query_layer.transpose(0, 1),   # [b * np, sq, hn]
+                key_layer.transpose(0, 1).transpose(1, 2),  # [b * np, hn, sk]
+                beta=0.0, alpha=(1.0/self.norm_factor))
 
-        # change view to [b, np, sq, sk]
-        attention_scores = matmul_result.view(*output_size)
+            # change view to [b, np, sq, sk]
+            attention_scores = matmul_result.view(*output_size)
 
-        # ===========================
-        # Attention probs and dropout
-        # ===========================
+            # ===========================
+            # Attention probs and dropout
+            # ===========================
 
-        # attention scores and attention mask [b, np, sq, sk]
-        attention_probs = self.scale_mask_softmax(attention_scores,
-                                                  attention_mask)
-        attention_probs = self.attention_dropout(attention_probs)
+            # attention scores and attention mask [b, np, sq, sk]
+            attention_probs = self.scale_mask_softmax(attention_scores,
+                                                    attention_mask)
+            attention_probs = self.attention_dropout(attention_probs)
 
 
-        # =========================
-        # Context layer. [sq, b, hp]
-        # =========================
+            # =========================
+            # Context layer. [sq, b, hp]
+            # =========================
 
-        # value_layer -> context layer.
-        # [sk, b, np, hn] --> [b, np, sq, hn]
+            # value_layer -> context layer.
+            # [sk, b, np, hn] --> [b, np, sq, hn]
 
-        # context layer shape: [b, np, sq, hn]
-        output_size = (value_layer.size(1),
-                       value_layer.size(2),
-                       query_layer.size(0),
-                       value_layer.size(3))
+            # context layer shape: [b, np, sq, hn]
+            output_size = (value_layer.size(1),
+                        value_layer.size(2),
+                        query_layer.size(0),
+                        value_layer.size(3))
 
-        # change view [sk, b * np, hn]
-        value_layer = value_layer.view(value_layer.size(0),
-                                       output_size[0] * output_size[1], -1)
+            # change view [sk, b * np, hn]
+            value_layer = value_layer.view(value_layer.size(0),
+                                        output_size[0] * output_size[1], -1)
 
-        # change view [b * np, sq, sk]
-        attention_probs = attention_probs.view(output_size[0] * output_size[1],
-                                               output_size[2], -1)
+            # change view [b * np, sq, sk]
+            attention_probs = attention_probs.view(output_size[0] * output_size[1],
+                                                output_size[2], -1)
 
-        # matmul: [b * np, sq, hn]
-        context_layer = torch.bmm(attention_probs, value_layer.transpose(0, 1))
+            # matmul: [b * np, sq, hn]
+            context_layer = torch.bmm(attention_probs, value_layer.transpose(0, 1))
+        
+        elif (self.attention_backend == "fa2"):
+            context_layer = self._flash_attention_2(
+                query_layer,
+                key_layer,
+                value_layer,
+                attention_mask,
+            )
+            output_size = context_layer.size()
+        elif (self.attention_backend == "fa3"):
+            raise NotImplementedError("FA3 attention backend is not implemented yet.")
+        else:
+            raise ValueError(f"Unsupported attention backend: {self.attention_backend}")
 
         # change view [b, np, sq, hn]
         context_layer = context_layer.view(*output_size)
@@ -281,6 +341,7 @@ class ShardedGptTransformerLayer(torch.nn.Module):
     def __init__(self, hidden_size,
                  world_size,
                  num_attention_heads,
+                 attention_backend,
                  attention_dropout_prob,
                  output_dropout_prob,
                  layernorm_epsilon,
@@ -295,6 +356,7 @@ class ShardedGptTransformerLayer(torch.nn.Module):
                             hidden_size,
                             world_size,
                             num_attention_heads,
+                            attention_backend,
                             attention_dropout_prob,
                             output_dropout_prob,
                             layer_number=layer_number)
@@ -340,6 +402,7 @@ class ShardedGptTransformer(torch.nn.Module):
                  hidden_size,
                  world_size,
                  num_attention_heads,
+                 attention_backend,
                  attention_dropout_prob,
                  output_dropout_prob,
                  checkpoint_activations,
@@ -356,6 +419,7 @@ class ShardedGptTransformer(torch.nn.Module):
                                     hidden_size,
                                     world_size,
                                     num_attention_heads,
+                                    attention_backend,
                                     attention_dropout_prob,
                                     output_dropout_prob,
                                     layernorm_epsilon,

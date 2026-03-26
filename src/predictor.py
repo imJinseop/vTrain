@@ -107,6 +107,7 @@ class vTrain():
                                      hidden_size=config.hidden_size,
                                      world_size=config.tensor_parallel_size,
                                      num_attention_heads=config.num_attention_heads,
+                                     attention_backend=config.attention_backend,
                                      max_sequence_length=config.max_length)
 
         return True
@@ -331,10 +332,11 @@ class vTrain():
 
     def profile(self):
         config = self.config
+        attention_backend = config.attention_backend
         
         # collect traces
         log_filename = os.path.join(config.trace_path,
-                                    f"trace_{config.hidden_size}_{config.tensor_parallel_size}_{config.micro_batch_size}")
+                                    f"trace_{config.hidden_size}_{config.tensor_parallel_size}_{config.micro_batch_size}_{attention_backend}")
 
         if os.path.isfile(log_filename):
             # if there is collected traces, use them

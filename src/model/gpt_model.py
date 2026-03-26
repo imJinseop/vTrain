@@ -13,6 +13,7 @@ class ShardedGptModel(nn.Module):
                  world_size,
                  vocab_size=50257,
                  num_attention_heads=16,
+                 attention_backend="manual",
                  embedding_dropout_prob=0.1,
                  attention_dropout_prob=0.1,
                  output_dropout_prob=0.1,
@@ -24,6 +25,8 @@ class ShardedGptModel(nn.Module):
         self.vocab_size = vocab_size
         self.world_size = world_size
         self.max_sequence_length = max_sequence_length
+        self.attention_backend = attention_backend
+
 
         # embeddings
         self.embeddings = ShardedGptEmbeddings(vocab_size, hidden_size, world_size,
@@ -34,6 +37,7 @@ class ShardedGptModel(nn.Module):
                                                  hidden_size,
                                                  world_size,
                                                  num_attention_heads,
+                                                 attention_backend,
                                                  attention_dropout_prob,
                                                  output_dropout_prob,
                                                  checkpoint_activations,

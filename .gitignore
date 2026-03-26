@@ -1,0 +1,6 @@
+**/__pycache__/**
+**/**.egg-info
+profiler/build/**
+profiler/dist
+trace
+result

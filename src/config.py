@@ -18,6 +18,7 @@ class vTrainConfig:
         num_layers (int): Number of transformer layers.
         hidden_size (int): The size of hidden dimension.
         num_attention_heads (int): Number of attention heads.
+        attention_backend (str): Attention backend to use ("manual", "fa2", or "fa3").
         max_length (int): Maximum sequence length.
         use_gradient_bucket (bool): Whether PyTorch DDP's gradient bucketing is used or not.
         use_checkpoint (bool): Whether activation checkpointing is used or not.
@@ -41,6 +42,7 @@ class vTrainConfig:
                  num_layers: int                            = 105,
                  hidden_size: int                           = 20480,
                  num_attention_heads: int                   = 128,
+                 attention_backend: str                      = "manual",
                  max_length: int                            = 2048,
                  vocab_size: int                            = 50257,
                  use_gradient_bucket: bool                  = False,
@@ -63,6 +65,7 @@ class vTrainConfig:
         self.num_layers = num_layers
         self.hidden_size = hidden_size
         self.num_attention_heads = num_attention_heads
+        self.attention_backend = attention_backend
         self.max_length = max_length
         self.vocab_size = vocab_size
         self.use_gradient_bucket = use_gradient_bucket
@@ -117,7 +120,8 @@ class vTrainConfig:
             "hidden_size must be divisible by num_attention_heads."
         assert self.num_attention_heads % self.tensor_parallel_size == 0, \
             "num_attention_heads must be divisible by tensor_parallel_size."
-        
+        assert self.attention_backend in ["manual", "fa2", "fa3"], \
+            "attention_backend must be one of 'manual', 'fa2', or 'fa3'."
 
     def save_to_file(self, file_path: str):
         """Save configuration to a JSON file."""
@@ -147,6 +151,7 @@ class vTrainConfig:
             f"  num_layers={self.num_layers},\n"
             f"  hidden_size={self.hidden_size},\n"
             f"  num_attention_heads={self.num_attention_heads},\n"
+            f"  attention_backend='{self.attention_backend}',\n"
             f"  max_length={self.max_length},\n"
             f"  use_gradient_bucket={self.use_gradient_bucket},\n"
             f"  use_checkpoint={self.use_checkpoint},\n"

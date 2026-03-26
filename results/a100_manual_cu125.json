@@ -1,0 +1,186 @@
+{
+  "generated_at": "2026-03-26T10:29:33",
+  "base_config_path": "config/config_example.json",
+  "experiments": [
+    {
+      "parallelism": {
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 8,
+        "pipeline_parallel_size": 35,
+        "num_gpus": 2240
+      },
+      "input_config": {
+        "num_gpus": 2240,
+        "gpu_name": "A100",
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 8,
+        "pipeline_parallel_size": 35,
+        "global_batch_size": 1920,
+        "micro_batch_size": 1,
+        "num_layers": 105,
+        "hidden_size": 20480,
+        "num_attention_heads": 128,
+        "attention_backend": "manual",
+        "max_length": 2048,
+        "use_gradient_bucket": false,
+        "use_checkpoint": true,
+        "pipeline_scheduling": "1f1b",
+        "inter_node_bandwidth": 800,
+        "intra_node_bandwidth": 150,
+        "node_size": 8,
+        "trace_path": "trace/"
+      },
+      "predicted_iteration_ms": 41925.166
+    },
+    {
+      "parallelism": {
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 10,
+        "pipeline_parallel_size": 35,
+        "num_gpus": 2800
+      },
+      "input_config": {
+        "num_gpus": 2800,
+        "gpu_name": "A100",
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 10,
+        "pipeline_parallel_size": 35,
+        "global_batch_size": 1920,
+        "micro_batch_size": 1,
+        "num_layers": 105,
+        "hidden_size": 20480,
+        "num_attention_heads": 128,
+        "attention_backend": "manual",
+        "max_length": 2048,
+        "use_gradient_bucket": false,
+        "use_checkpoint": true,
+        "pipeline_scheduling": "1f1b",
+        "inter_node_bandwidth": 800,
+        "intra_node_bandwidth": 150,
+        "node_size": 8,
+        "trace_path": "trace/"
+      },
+      "predicted_iteration_ms": 34378.977
+    },
+    {
+      "parallelism": {
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 12,
+        "pipeline_parallel_size": 35,
+        "num_gpus": 3360
+      },
+      "input_config": {
+        "num_gpus": 3360,
+        "gpu_name": "A100",
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 12,
+        "pipeline_parallel_size": 35,
+        "global_batch_size": 1920,
+        "micro_batch_size": 1,
+        "num_layers": 105,
+        "hidden_size": 20480,
+        "num_attention_heads": 128,
+        "attention_backend": "manual",
+        "max_length": 2048,
+        "use_gradient_bucket": false,
+        "use_checkpoint": true,
+        "pipeline_scheduling": "1f1b",
+        "inter_node_bandwidth": 800,
+        "intra_node_bandwidth": 150,
+        "node_size": 8,
+        "trace_path": "trace/"
+      },
+      "predicted_iteration_ms": 29348.184
+    },
+    {
+      "parallelism": {
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 12,
+        "pipeline_parallel_size": 21,
+        "num_gpus": 2016
+      },
+      "input_config": {
+        "num_gpus": 2016,
+        "gpu_name": "A100",
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 12,
+        "pipeline_parallel_size": 21,
+        "global_batch_size": 1920,
+        "micro_batch_size": 1,
+        "num_layers": 105,
+        "hidden_size": 20480,
+        "num_attention_heads": 128,
+        "attention_backend": "manual",
+        "max_length": 2048,
+        "use_gradient_bucket": false,
+        "use_checkpoint": true,
+        "pipeline_scheduling": "1f1b",
+        "inter_node_bandwidth": 800,
+        "intra_node_bandwidth": 150,
+        "node_size": 8,
+        "trace_path": "trace/"
+      },
+      "predicted_iteration_ms": 44558.436
+    },
+    {
+      "parallelism": {
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 16,
+        "pipeline_parallel_size": 21,
+        "num_gpus": 2688
+      },
+      "input_config": {
+        "num_gpus": 2688,
+        "gpu_name": "A100",
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 16,
+        "pipeline_parallel_size": 21,
+        "global_batch_size": 1920,
+        "micro_batch_size": 1,
+        "num_layers": 105,
+        "hidden_size": 20480,
+        "num_attention_heads": 128,
+        "attention_backend": "manual",
+        "max_length": 2048,
+        "use_gradient_bucket": false,
+        "use_checkpoint": true,
+        "pipeline_scheduling": "1f1b",
+        "inter_node_bandwidth": 800,
+        "intra_node_bandwidth": 150,
+        "node_size": 8,
+        "trace_path": "trace/"
+      },
+      "predicted_iteration_ms": 34410.863
+    },
+    {
+      "parallelism": {
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 20,
+        "pipeline_parallel_size": 21,
+        "num_gpus": 3360
+      },
+      "input_config": {
+        "num_gpus": 3360,
+        "gpu_name": "A100",
+        "tensor_parallel_size": 8,
+        "data_parallel_size": 20,
+        "pipeline_parallel_size": 21,
+        "global_batch_size": 1920,
+        "micro_batch_size": 1,
+        "num_layers": 105,
+        "hidden_size": 20480,
+        "num_attention_heads": 128,
+        "attention_backend": "manual",
+        "max_length": 2048,
+        "use_gradient_bucket": false,
+        "use_checkpoint": true,
+        "pipeline_scheduling": "1f1b",
+        "inter_node_bandwidth": 800,
+        "intra_node_bandwidth": 150,
+        "node_size": 8,
+        "trace_path": "trace/"
+      },
+      "predicted_iteration_ms": 28322.319
+    }
+  ]
+}
