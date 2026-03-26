@@ -545,6 +545,7 @@ class vTrain():
 
     def compute_comm_time(self, size, num_gpus):
         if num_gpus not in self.allreduce_LUT.keys():
+            assert(0)
             # if there are more than 8 GPUs, latency is estimated by BW
             # assuming a 16-GPU node with all-to-all NVSwitch topology such as HGX
             t = size / (self.config.intra_node_bandwidth * (2 ** 30)) * (2*(num_gpus-1)/num_gpus) # second

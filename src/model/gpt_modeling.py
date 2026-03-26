@@ -3,11 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import math
+import warnings
 
 try:
     from flash_attn import flash_attn_func
 except ImportError:
     flash_attn_func = None
+
+try:
+    from flash_attn_interface import flash_attn_func as flash_attn_3_func
+except ImportError:
+    flash_attn_3_func = None
 
 from .utils import divide
 from .utils import split_tensor_along_last_dim
@@ -157,6 +163,7 @@ class ShardedGptSelfAttention(torch.nn.Module):
         # different outputs on different number of parallel partitions but
         # on average it should not be partition dependent.
         self.attention_dropout = torch.nn.Dropout(attention_dropout_prob)
+        self._fa3_dropout_warned = False
 
         # Output.
         self.dense = RowParallelLinear(hidden_size, hidden_size,
@@ -207,6 +214,51 @@ class ShardedGptSelfAttention(torch.nn.Module):
             key_layer,
             value_layer,
             dropout_p=self.attention_dropout.p if self.training else 0.0,
+            softmax_scale=1.0 / math.sqrt(self.hidden_size_per_attention_head),
+            causal=True,
+        )
+
+        return context_layer.permute(0, 2, 1, 3).contiguous()
+
+    def _flash_attention_3(self, query_layer, key_layer, value_layer, attention_mask):
+        if flash_attn_3_func is None:
+            raise ImportError(
+                "attention_backend='fa3' requires the Hopper FlashAttention package "
+                "to expose flash_attn_interface.flash_attn_func()."
+            )
+        if not query_layer.is_cuda:
+            raise RuntimeError("attention_backend='fa3' requires CUDA tensors.")
+        if query_layer.dtype not in (torch.float16, torch.bfloat16):
+            raise RuntimeError(
+                "attention_backend='fa3' requires query/key/value tensors in fp16 or bf16."
+            )
+        if attention_mask is not None:
+            if attention_mask.dim() != 4:
+                raise ValueError(
+                    "attention_backend='fa3' expects attention_mask to have shape [b, 1, s, s]."
+                )
+            if attention_mask.size(-2) != query_layer.size(0) or attention_mask.size(-1) != key_layer.size(0):
+                raise ValueError(
+                    "attention_backend='fa3' only supports square self-attention masks."
+                )
+        if self.training and self.attention_dropout.p > 0:
+            if not self._fa3_dropout_warned:
+                warnings.warn(
+                    "attention_backend='fa3' ignores attention_dropout_prob because "
+                    "flash_attn_interface.flash_attn_func() in this environment does not "
+                    "expose a dropout_p argument. Proceeding without attention dropout.",
+                    stacklevel=2,
+                )
+                self._fa3_dropout_warned = True
+
+        query_layer = query_layer.permute(1, 0, 2, 3).contiguous()
+        key_layer = key_layer.permute(1, 0, 2, 3).contiguous()
+        value_layer = value_layer.permute(1, 0, 2, 3).contiguous()
+
+        context_layer = flash_attn_3_func(
+            query_layer,
+            key_layer,
+            value_layer,
             softmax_scale=1.0 / math.sqrt(self.hidden_size_per_attention_head),
             causal=True,
         )
@@ -313,7 +365,13 @@ class ShardedGptSelfAttention(torch.nn.Module):
             )
             output_size = context_layer.size()
         elif (self.attention_backend == "fa3"):
-            raise NotImplementedError("FA3 attention backend is not implemented yet.")
+            context_layer = self._flash_attention_3(
+                query_layer,
+                key_layer,
+                value_layer,
+                attention_mask,
+            )
+            output_size = context_layer.size()
         else:
             raise ValueError(f"Unsupported attention backend: {self.attention_backend}")
 
