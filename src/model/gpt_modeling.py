@@ -265,6 +265,39 @@ class ShardedGptSelfAttention(torch.nn.Module):
 
         return context_layer.permute(0, 2, 1, 3).contiguous()
 
+    def _scaled_dot_product_attention(self, query_layer, key_layer, value_layer, attention_mask):
+        query_layer = query_layer.permute(1, 2, 0, 3).contiguous()
+        key_layer = key_layer.permute(1, 2, 0, 3).contiguous()
+        value_layer = value_layer.permute(1, 2, 0, 3).contiguous()
+
+        sdpa_mask = None
+        if attention_mask is not None:
+            if attention_mask.dim() != 4:
+                raise ValueError(
+                    "attention_backend='sdpa' expects attention_mask to have shape [b, 1, s, s]."
+                )
+            if attention_mask.size(0) != query_layer.size(0):
+                raise ValueError(
+                    "attention_backend='sdpa' expects attention_mask batch size to match query batch size."
+                )
+            if attention_mask.size(-2) != query_layer.size(-2) or attention_mask.size(-1) != key_layer.size(-2):
+                raise ValueError(
+                    "attention_backend='sdpa' only supports square self-attention masks."
+                )
+
+            # This model builds GPT left-to-right masks as 0/1 tensors where 1 means
+            # the position is visible. SDPA expects boolean masks with True=keep.
+            sdpa_mask = attention_mask.to(torch.bool)
+
+        return F.scaled_dot_product_attention(
+            query_layer,
+            key_layer,
+            value_layer,
+            # attn_mask=sdpa_mask,
+            is_causal=True,
+            dropout_p=self.attention_dropout.p if self.training else 0.0,
+        )
+
     def forward(self, hidden_states, attention_mask):
         # hidden_states: [sq, b, h]
 
@@ -366,6 +399,14 @@ class ShardedGptSelfAttention(torch.nn.Module):
             output_size = context_layer.size()
         elif (self.attention_backend == "fa3"):
             context_layer = self._flash_attention_3(
+                query_layer,
+                key_layer,
+                value_layer,
+                attention_mask,
+            )
+            output_size = context_layer.size()
+        elif (self.attention_backend == "sdpa"):
+            context_layer = self._scaled_dot_product_attention(
                 query_layer,
                 key_layer,
                 value_layer,
